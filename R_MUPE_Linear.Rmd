@@ -1,0 +1,63 @@
+---
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+pagetitle: R MUPE Linear
+---
+## R Implementation of MUPE for Linear Models
+
+##### Define function
+```{r mupe_linear}
+# Linear instantiation of the Minimum Unbiased Percent Error technique (MUPE) for
+# multiplicative error models, which utilizes Iteratively Re-weighted Least Squares (IRLS)
+# with weights equal to the squared inverse predictions from the prior iteration.
+# Usage Example:
+#   mupe = mupe_linear(formula_str = "y ~ 0 + x", data = df)
+#     - 'formula_str' must be a character string that resembles an R 'lm' formula object
+#       (default is no intercept, i.e. a simple factor model)
+#     - 'data' must be a dataframe containing the variables listed in formula_str
+# Returns a list containing a standard R 'lm' object and the number of iterations.
+# 
+mupe_linear = function(formula_str = "y ~ 0 + x", data) {
+  f = as.formula(formula_str)           # convert string to R formula object
+  model = lm(f, data)                   # 1st iteration (Ordinary Least Squares)
+  conv = 1.0;  i = 1                    # initialize convergence and counter
+  while (conv > 1e-5) {
+    wt = 1 / model$fitted^2             # calculate weights
+    pbeta = model$coef                  # solution of prior iteration
+    model = lm(f, data, weights=wt)     # weighted least squares
+    beta = model$coef                   # solution of current iteration
+    conv = max(abs((beta-pbeta)/beta))  # maximum fractional change in any parameter
+    i = i + 1;  if (i == 200) break     # force stop, if necessary
+  }
+  return(list(model=model, mupe_iters=i))
+}
+```
+
+##### Generate data to demonstrate equation of the form $y=b_0+b_1x_1$
+```{r generate_data}
+# Simulate data
+set.seed(0);  n = 20;  x1 = runif(n, 20, 150);  y = 180 + 6*x1
+# Apply multiplicative lognormal random error term with mean=1, cv=0.3
+cv = 0.3;  loc = log(1 / sqrt(cv^2 + 1));  shape = sqrt(log(1 + cv^2))
+y = y*rlnorm(n, loc, shape)
+my_df = data.frame('y'=y, 'x1'=x1)
+```
+
+##### Apply method
+```{r apply_mupe}
+my_mupe = mupe_linear('y ~ x1', my_df)
+my_mupe  # output: final model and number of iterations
+summary(my_mupe$model)  # mupe$model is a standard R 'lm' object
+# The mean percent error of the MUPE solution is approximately zero
+mean(my_mupe$model$residuals / my_mupe$model$fitted)
+```
+
+##### Overlay fitted curve on scatterplot
+```{r plot_results, fig.width=5, fig.height=4, fig.align='center'}
+par(mar=c(4.5,4.5,1,1))
+plot(x1, y, xlab='x1', ylab='y')
+xvec = seq(min(x1), max(x1), length.out=100)
+lines(xvec, predict(my_mupe$model, data.frame('x1'=xvec)), col='red2', lty=2)
+```
